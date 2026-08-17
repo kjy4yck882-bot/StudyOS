@@ -9,7 +9,7 @@ import {
   Search, CheckCircle2, BarChart2, Key, BookMarked, Radio, Activity
 } from 'lucide-react';
 
-const API_BASE = import.meta.env.VITE_API_URL || "https://sublime-generosity-production.up.railway.app";
+const API_BASE = "https://sublime-generosity-production.up.railway.app";
 
 const SUBJECTS = ["Matematik", "Fizik", "Kimya", "Biyoloji", "Edebiyat", "Coğrafya", "Tarih", "DKAB"];
 const DAYS = ["Pazartesi", "Salı", "Çarşamba", "Perşembe", "Cuma", "Cumartesi", "Pazar"];
