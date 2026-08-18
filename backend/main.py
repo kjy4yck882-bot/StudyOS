@@ -751,3 +751,39 @@ def save_journal(req: JournalCreate, user_id: Optional[int] = None, db: Session 
     db.refresh(j)
     new_xp = add_user_xp(user_id, 30, db)
     return {"journal": j, "new_xp": new_xp}
+
+
+# --- GÜNLÜK DİNAMİK FORMÜL VERİTABANI ---
+DAILY_FORMULAS = [
+    {"subject": "Matematik", "title": "İkinci Dereceden Denklem Kökleri", "formula": "x₁,₂ = (-b ± √(b² - 4ac)) / (2a)", "tip": "Δ < 0 ise reel kök yoktur, karmaşık kök vardır."},
+    {"subject": "Fizik", "title": "Düzgün Hızlanan Doğrusal Hareket", "formula": "x = v₀·t + ½·a·t²  |  v² = v₀² + 2·a·x", "tip": "İvme sabit değilse bu formüller doğrudan kullanılamaz."},
+    {"subject": "Kimya", "title": "İdeal Gaz Yasası", "formula": "P · V = n · R · T", "tip": "R = 0.082 L·atm/(mol·K) veya 22.4/273 alınır, sıcaklık Kelvin cinsindendir."},
+    {"subject": "Matematik", "title": "Aritmetik Dizi Genel Terimi", "formula": "aₙ = a₁ + (n - 1) · d  |  Sₙ = (n/2) · (a₁ + aₙ)", "tip": "Ardışık terimler farkı sabittir (ortak fark = d)."},
+    {"subject": "Fizik", "title": "İş - Kinetik Enerji Teoremi", "formula": "W_net = ΔE_k = ½·m·v_son² - ½·m·v_ilk²", "tip": "Sürtünme varsa ısıya dönüşen enerji W_net içine negatif katılır."},
+    {"subject": "Kimya", "title": "Molarite ve Derişim", "formula": "M = n / V (Litre)  |  M₁·V₁ = M₂·V₂", "tip": "Seyreltme veya deriştirme işlemlerinde çözünen mol sayısı (n) değişmez."},
+    {"subject": "Matematik", "title": "Trigonometri: Yarım Açı Formülleri", "formula": "sin(2x) = 2·sin(x)·cos(x)  |  cos(2x) = cos²(x) - sin²(x)", "tip": "cos(2x) = 2cos²(x)-1 = 1-2sin²(x) dönüşümleri integral/türev sadeleştirmede kritiktir."},
+    {"subject": "Fizik", "title": "Elektriksel Kuvvet (Coulomb)", "formula": "F = k · |q₁ · q₂| / d²", "tip": "Kuvvet vektöreldir, yük işaretleri yön tayininde kullanılır."},
+    {"subject": "Kimya", "title": "Tepkime Hızı (Kinetik)", "formula": "Hız (r) = k · [A]^a · [B]^b", "tip": "Katı ve saf sıvılar hız bağıntısına yazılmaz, yalnızca gazlar ve sulu çözeltiler yazılır."},
+    {"subject": "Matematik", "title": "Logaritma Taban Değiştirme", "formula": "log_a(b) = log_c(b) / log_c(a) = ln(b) / ln(a)", "tip": "log_a(b) · log_b(c) = log_a(c) çarpım kuralını unutma."},
+    {"subject": "Fizik", "title": "Basit Harmonik Hareket Periyotları", "formula": "Yay: T = 2π√(m/k)  |  Sarkaç: T = 2π√(L/g)", "tip": "Yay sarkaçta genlik (A) periyodu etkilemez."},
+    {"subject": "Kimya", "title": "pH ve pOH Bağıntısı (25°C)", "formula": "pH = -log[H⁺]  |  pOH = -log[OH⁻]  |  pH + pOH = 14", "tip": "Sıcaklık 25°C'den farklıysa Kw değeri ve dolayısıyla toplam değişir."}
+]
+
+@app.get("/api/formulas/today")
+def get_today_formulas():
+    # Yılın gününe göre her gün otomatik olarak 3 farklı formül seçer
+    day_of_year = datetime.utcnow().timetuple().tm_yday
+    total = len(DAILY_FORMULAS)
+    
+    idx1 = (day_of_year * 3) % total
+    idx2 = (day_of_year * 3 + 1) % total
+    idx3 = (day_of_year * 3 + 2) % total
+    
+    return {
+        "date": datetime.utcnow().strftime("%d.%m.%Y"),
+        "formulas": [
+            DAILY_FORMULAS[idx1],
+            DAILY_FORMULAS[idx2],
+            DAILY_FORMULAS[idx3]
+        ]
+    }
