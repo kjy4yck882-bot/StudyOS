@@ -894,3 +894,120 @@ def reset_db(pin: str, db: Session = Depends(get_db)):
     db.query(Topic).delete()
     db.commit()
     return {"message": "Tüm veritabanı sıfırlandı."}
+
+
+@app.get("/api/schedule/export-pdf")
+def export_schedule_pdf(user_id: Optional[int] = None, db: Session = Depends(get_db)):
+    q = db.query(WeeklySchedule)
+    if user_id:
+        q = q.filter((WeeklySchedule.user_id == int(user_id)) | (WeeklySchedule.user_id == None))
+    tasks = q.all()
+    
+    days_order = ["Pazartesi", "Salı", "Çarşamba", "Perşembe", "Cuma", "Cumartesi", "Pazar"]
+    days_tasks = {d: [] for d in days_order}
+    for t in tasks:
+        if t.day in days_tasks:
+            days_tasks[t.day].append(t)
+            
+    cards_html = ""
+    for day in days_order:
+        t_list = "".join([f"<li style=\"margin-bottom:6px;\"><b>{t.subject}:</b> {t.task} {\"<span style=\\\"color:#16a34a;\\\">(✓)</span>\" if t.is_completed else \"\"}</li>" for t in days_tasks[day]])
+        if not t_list:
+            t_list = "<li style=\"color:#94a3b8; list-style:none;\">Planlanan görev yok</li>"
+        cards_html += f"""
+        <div style=\"border:1px solid #e2e8f0; border-radius:8px; padding:12px; background:#f8fafc;\">
+            <h3 style=\"margin-top:0; color:#4f46e5; border-bottom:1px solid #cbd5e1; padding-bottom:4px; font-size:14px;\">{day}</h3>
+            <ul style=\"padding-left:16px; margin:0; font-size:12px; color:#1e293b;\">{t_list}</ul>
+        </div>
+        """
+
+    html = f"""<!DOCTYPE html>
+    <html>
+    <head>
+        <meta charset="utf-8">
+        <title>YKStudy - Haftalık Çalışma Programı</title>
+        <style>
+            body {{ font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; padding: 24px; color: #0f172a; }}
+            .header {{ display: flex; justify-content: space-between; align-items: center; border-bottom: 2px solid #4f46e5; padding-bottom: 12px; margin-bottom: 20px; }}
+            .grid {{ display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px; }}
+            @media print {{
+                body {{ padding: 0; }}
+                button {{ display: none; }}
+            }}
+        </style>
+    </head>
+    <body>
+        <div class="header">
+            <div>
+                <h1 style="margin:0; font-size:20px; color:#1e1b4b;">🎯 YKStudy Haftalık Çalışma Programı</h1>
+                <p style="margin:4px 0 0; font-size:12px; color:#64748b;">Kişisel YKS Hazırlık ve Hedef Çizelgesi</p>
+            </div>
+            <button onclick="window.print()" style="background:#4f46e5; color:#fff; border:none; padding:8px 16px; border-radius:6px; font-weight:bold; cursor:pointer;">🖨️ PDF Olarak Yazdır</button>
+        </div>
+        <div class="grid">
+            {cards_html}
+        </div>
+        <script>
+            window.onload = function() {{ setTimeout(function() {{ window.print(); }}, 600); }}
+        </script>
+    </body>
+    </html>"""
+    return HTMLResponse(content=html)
+
+@app.get("/api/mistakes/export-book")
+def export_mistakes_book(user_id: Optional[int] = None, db: Session = Depends(get_db)):
+    q = db.query(Mistake)
+    if user_id:
+        q = q.filter((Mistake.user_id == int(user_id)) | (Mistake.user_id == None))
+    mistakes_list = q.order_by(Mistake.created_at.desc()).all()
+
+    items_html = ""
+    for idx, m in enumerate(mistakes_list, 1):
+        img_tag = f"<img src=\"{m.image_path}\" style=\"max-height:220px; max-width:100%; border-radius:6px; border:1px solid #e2e8f0; margin-bottom:8px;\">" if m.image_path else ""
+        items_html += f"""
+        <div style=\"border:1px solid #cbd5e1; border-radius:8px; padding:14px; margin-bottom:14px; page-break-inside:avoid; background:#ffffff;\">
+            <div style=\"display:flex; justify-content:space-between; margin-bottom:6px; font-size:11px;\">
+                <span style=\"background:#e0e7ff; color:#3730a3; padding:2px 6px; border-radius:4px; font-weight:bold;\">Soru #{idx} - {m.tag}</span>
+                <span style=\"color:#64748b;\">Zorluk: {m.difficulty}/5</span>
+            </div>
+            {img_tag}
+            <div style=\"background:#f8fafc; padding:8px; border-radius:6px; border-left:3px solid #6366f1; font-size:12px; color:#334155;\">
+                <b>Öğrenci Notu / Çözüm Analizi:</b><br>{m.note or "Not eklenmemiş."}
+            </div>
+        </div>
+        """
+
+    if not items_html:
+        items_html = "<p style=\"color:#64748b; text-align:center; padding:40px;\">Yanlış defterinde kayıtlı soru bulunmuyor.</p>"
+
+    html = f"""<!DOCTYPE html>
+    <html>
+    <head>
+        <meta charset="utf-8">
+        <title>YKStudy - Yanlış Defteri Kitapçığı</title>
+        <style>
+            body {{ font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; padding: 24px; color: #0f172a; background: #f1f5f9; }}
+            .header {{ display: flex; justify-content: space-between; align-items: center; border-bottom: 2px solid #10b981; padding-bottom: 12px; margin-bottom: 20px; }}
+            @media print {{
+                body {{ padding: 0; background: #fff; }}
+                button {{ display: none; }}
+            }}
+        </style>
+    </head>
+    <body>
+        <div class="header">
+            <div>
+                <h1 style="margin:0; font-size:20px; color:#064e3b;">📘 YKStudy Yanlış Soru ve Analiz Kitapçığı</h1>
+                <p style="margin:4px 0 0; font-size:12px; color:#64748b;">Tekrar ve Nokta Atışı Eksik Kapatma Fasikülü</p>
+            </div>
+            <button onclick="window.print()" style="background:#10b981; color:#fff; border:none; padding:8px 16px; border-radius:6px; font-weight:bold; cursor:pointer;">🖨️ PDF Olarak İndir</button>
+        </div>
+        <div>
+            {items_html}
+        </div>
+        <script>
+            window.onload = function() {{ setTimeout(function() {{ window.print(); }}, 600); }}
+        </script>
+    </body>
+    </html>"""
+    return HTMLResponse(content=html)
