@@ -643,3 +643,113 @@ def save_journal(req: JournalCreate, user_id: Optional[int] = None, db: Session 
     db.refresh(j)
     new_xp = add_user_xp(user_id, 30, db)
     return {"journal": j, "new_xp": new_xp}
+
+
+# --- TYT TÜM DERSLER MÜFREDAT HAVUZU ---
+CURRICULUM_DATA = [
+    # Matematik
+    ("Matematik", "Temel Kavramlar & Sayı Basamakları", "Yüksek"),
+    ("Matematik", "Bölme - Bölünebilme & OBEB-OKEK", "Orta"),
+    ("Matematik", "Rasyonel & Ondalık Sayılar", "Yüksek"),
+    ("Matematik", "Basit Eşitsizlikler & Mutlak Değer", "Yüksek"),
+    ("Matematik", "Üslü & Köklü İfadeler", "Yüksek"),
+    ("Matematik", "Çarpanlara Ayırma", "Orta"),
+    ("Matematik", "Oran - Orantı", "Orta"),
+    ("Matematik", "Problemler (Sayı, Kesir, Yaş, Yüzde, Hareket)", "Çok Yüksek"),
+    ("Matematik", "Kümeler & Kartezyen Çarpım", "Orta"),
+    ("Matematik", "Fonksiyonlar (Temel Kavramlar)", "Yüksek"),
+    ("Matematik", "Polinomlar & 2. Dereceden Denklemler", "Orta"),
+    ("Matematik", "Permütasyon - Kombinasyon - Olasılık", "Yüksek"),
+    ("Matematik", "İstatistik & Veri Analizi", "Orta"),
+
+    # Geometri
+    ("Geometri", "Doğruda ve Üçgende Açılar", "Yüksek"),
+    ("Geometri", "Özel Üçgenler (Dik, İkizkenar, Eşkenar)", "Yüksek"),
+    ("Geometri", "Üçgende Alan ve Benzerlik", "Çok Yüksek"),
+    ("Geometri", "Çokgenler ve Dörtgenler", "Yüksek"),
+    ("Geometri", "Çember ve Daire", "Orta"),
+    ("Geometri", "Katı Cisimler (Prizma, Piramit, Koni)", "Yüksek"),
+
+    # Fizik
+    ("Fizik", "Fizik Bilimine Giriş & Madde ve Özellikleri", "Orta"),
+    ("Fizik", "Kuvvet ve Hareket (1 Boyutta)", "Yüksek"),
+    ("Fizik", "İş, Güç ve Enerji", "Yüksek"),
+    ("Fizik", "Isı, Sıcaklık ve Genleşme", "Yüksek"),
+    ("Fizik", "Elektrostatik & Elektrik Akımı / Devreler", "Yüksek"),
+    ("Fizik", "Manyetizma ve Maddesel Özellikler", "Orta"),
+    ("Fizik", "Basınç ve Kaldırma Kuvveti", "Yüksek"),
+    ("Fizik", "Dalgalar (Ses, Deprem, Su, Yay)", "Orta"),
+    ("Fizik", "Optik (Gölge, Yansıma, Kırılma, Mercekler)", "Çok Yüksek"),
+
+    # Kimya
+    ("Kimya", "Kimya Bilimi & Simyadan Kimyaya", "Orta"),
+    ("Kimya", "Atom ve Periyodik Sistem", "Yüksek"),
+    ("Kimya", "Kimyasal Türler Arası Etkileşimler", "Çok Yüksek"),
+    ("Kimya", "Maddenin Halleri (Katı, Sıvı, Gaz, Plazma)", "Yüksek"),
+    ("Kimya", "Kimyanın Temel Kanunları & Mol Kavramı", "Yüksek"),
+    ("Kimya", "Kimyasal Hesaplamalar", "Orta"),
+    ("Kimya", "Karışımlar ve Ayırma Teknikleri", "Yüksek"),
+    ("Kimya", "Asitler, Bazlar ve Tuzlar", "Yüksek"),
+    ("Kimya", "Kimya Her Yerde (Temizlik, Polimer, Gıda)", "Orta"),
+
+    # Biyoloji
+    ("Biyoloji", "Canlıların Ortak Özellikleri & Temel Bileşikler", "Yüksek"),
+    ("Biyoloji", "Hücre Teorisi, Yapısı ve Organeller", "Çok Yüksek"),
+    ("Biyoloji", "Hücre Zarından Madde Geçişleri", "Yüksek"),
+    ("Biyoloji", "Canlıların Çeşitliliği ve Sınıflandırılması", "Yüksek"),
+    ("Biyoloji", "Hücre Bölünmeleri (Mitoz ve Mayoz)", "Yüksek"),
+    ("Biyoloji", "Kalıtım ve Genetik Varyasyonlar", "Çok Yüksek"),
+    ("Biyoloji", "Ekosistem Ekolojisi ve Güncel Çevre Sorunları", "Yüksek"),
+
+    # Türkçe
+    ("Türkçe", "Sözcükte ve Söz Öbeklerinde Anlam", "Yüksek"),
+    ("Türkçe", "Cümlede Anlam ve Kavramlar", "Yüksek"),
+    ("Türkçe", "Paragrafta Ana Düşünce ve Yardımcı Düşünceler", "Çok Yüksek"),
+    ("Türkçe", "Paragrafta Yapı ve Anlatım Teknikleri", "Çok Yüksek"),
+    ("Türkçe", "Ses Bilgisi & Yazım Kuralları & Noktalama", "Yüksek"),
+    ("Türkçe", "Sözcükte Yapı ve Ekler", "Orta"),
+    ("Türkçe", "Sözcük Türleri (İsim, Sıfat, Zamir, Zarf, Fiil)", "Orta"),
+    ("Türkçe", "Cümlenin Ögeleri ve Cümle Türleri", "Orta"),
+    ("Türkçe", "Anlatım Bozuklukları", "Düşük"),
+
+    # Sosyal Bilimler (Tarih - Coğrafya - Felsefe - Din)
+    ("Tarih", "İlk ve Orta Çağlarda Türk Dünyası", "Orta"),
+    ("Tarih", "İslam Medeniyetinin Doğuşu ve İlk Türk İslam Devletleri", "Orta"),
+    ("Tarih", "Osmanlı Devleti Kuruluş, Yükselme ve Kültür Medeniyet", "Yüksek"),
+    ("Tarih", "Milli Mücadele Dönemi ve Atatürk İlkeleri", "Çok Yüksek"),
+    ("Coğrafya", "Doğa ve İnsan & Harita Bilgisi", "Orta"),
+    ("Coğrafya", "Dünya'nın Şekli ve Hareketleri & İklim Bilgisi", "Yüksek"),
+    ("Coğrafya", "İç ve Dış Kuvvetler & Türkiye'nin Yerşekilleri", "Yüksek"),
+    ("Coğrafya", "Nüfus, Yerleşme ve Doğal Afetler", "Yüksek"),
+    ("Felsefe", "Felsefeyi Tanıma & Bilgi, Varlık, Ahlak Felsefesi", "Yüksek"),
+    ("Din Kültürü", "İslam İnanç Esasları, İbadetler ve Ahlak", "Yüksek")
+]
+
+@app.post("/api/topics/load-curriculum")
+@app.post("/api/topics/seed")
+def load_curriculum(user_id: Optional[int] = None, db: Session = Depends(get_db)):
+    uid = int(user_id) if user_id else None
+    
+    # Kullanıcının mevcut konularını kontrol et
+    existing = db.query(Topic).filter((Topic.user_id == uid) if uid else (Topic.user_id == None)).all()
+    existing_titles = set([f"{t.subject}:{t.title}" for t in existing])
+    
+    added_count = 0
+    for subj, title, weight in CURRICULUM_DATA:
+        key = f"{subj}:{title}"
+        if key not in existing_titles:
+            t = Topic(
+                subject=subj,
+                title=title,
+                osym_weight=weight,
+                user_id=uid,
+                theory_done=False,
+                source1_done=False,
+                source2_done=False,
+                mastery_score=0.0
+            )
+            db.add(t)
+            added_count += 1
+            
+    db.commit()
+    return {"ok": True, "added_count": added_count, "message": f"{added_count} adet TYT konusu başarıyla yüklendi!"}
