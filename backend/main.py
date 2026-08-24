@@ -787,3 +787,60 @@ def get_today_formulas():
             DAILY_FORMULAS[idx3]
         ]
     }
+
+
+# --- KOÇLUK & YÖNETİM MERKEZİ ENDPOINTLERİ ---
+class AdminPinReq(BaseModel):
+    pin: str
+
+@app.post("/api/admin/verify-pin")
+def verify_admin_pin(req: AdminPinReq, db: Session = Depends(get_db)):
+    current_pin = get_admin_pin(db)
+    if req.pin.strip() == current_pin.strip():
+        return {"ok": True, "message": "Giriş başarılı"}
+    raise HTTPException(status_code=400, detail="Geçersiz PIN kodu!")
+
+class AdminChangePinReq(BaseModel):
+    old_pin: str
+    new_pin: str
+
+@app.post("/api/admin/change-pin")
+def change_admin_pin(req: AdminChangePinReq, db: Session = Depends(get_db)):
+    current_pin = get_admin_pin(db)
+    if req.old_pin.strip() != current_pin.strip():
+        raise HTTPException(status_code=400, detail="Mevcut PIN hatalı!")
+    if len(req.new_pin.strip()) < 4:
+        raise HTTPException(status_code=400, detail="Yeni PIN en az 4 haneli olmalıdır!")
+    
+    s = db.query(SystemSetting).filter(SystemSetting.key == "admin_pin").first()
+    if s:
+        s.value = req.new_pin.strip()
+    else:
+        s = SystemSetting(key="admin_pin", value=req.new_pin.strip())
+        db.add(s)
+    db.commit()
+    return {"ok": True, "message": "PIN kodu başarıyla güncellendi."}
+
+@app.get("/api/admin/overview")
+def get_admin_overview(db: Session = Depends(get_db)):
+    users = db.query(User).all()
+    user_list = []
+    for u in users:
+        solved_today = db.query(DailyQuestionGoal).filter(
+            DailyQuestionGoal.user_id == u.id,
+            DailyQuestionGoal.date_str == datetime.utcnow().strftime("%Y-%m-%d")
+        ).first()
+        
+        user_list.append({
+            "id": u.id,
+            "username": u.username,
+            "email": u.email,
+            "xp": u.xp or 0,
+            "target_uni": u.target_uni,
+            "target_dept": u.target_dept,
+            "selected_title": u.selected_title,
+            "solved_today": solved_today.solved if solved_today else 0,
+            "target_today": solved_today.target if solved_today else 100,
+            "is_studying": u.is_studying_now
+        })
+    return {"users": user_list, "total_users": len(user_list)}
