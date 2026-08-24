@@ -32,16 +32,6 @@ engine = create_engine(DATABASE_URL, connect_args={"check_same_thread": False})
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 Base = declarative_base()
 
-def send_telegram_notification(bot_token: str, chat_id: str, message: str):
-    if not bot_token or not chat_id:
-        return
-    try:
-        url = f"https://api.telegram.org/bot{bot_token}/sendMessage"
-        payload = {"chat_id": chat_id, "text": message, "parse_mode": "Markdown"}
-        requests.post(url, json=payload, timeout=5)
-    except Exception as e:
-        print("Telegram hatası:", e)
-
 class SystemSetting(Base):
     __tablename__ = "system_settings"
     id = Column(Integer, primary_key=True)
@@ -167,6 +157,7 @@ def get_admin_pin(db: Session) -> str:
         s = SystemSetting(key="admin_pin", value="1234")
         db.add(s)
         db.commit()
+        db.refresh(s)
     return s.value
 
 def add_user_xp(user_id: Optional[int], amount: int, db: Session):
@@ -183,97 +174,63 @@ def add_user_xp(user_id: Optional[int], amount: int, db: Session):
 def root_check():
     return {"status": "ok", "message": "YKStudy API Live"}
 
-# --- ÜNİVERSİTE VERİTABANI ---
-UNI_DATABASE = [
-    {
-        "uni": "Gebze Teknik Üniversitesi",
-        "dept": "Bilgisayar Mühendisliği (İngilizce)",
-        "score_type": "SAY",
-        "min_score": 486.5,
-        "rank": "~14.500",
-        "tyt_net": 94.5,
-        "ayt_net": 66.0,
-        "reqs": { "tyt_turkce": 32.5, "tyt_mat": 33.0, "tyt_fen": 15.5, "tyt_sos": 13.5, "ayt_mat": 34.0, "ayt_fiz": 11.5, "ayt_kim": 10.5, "ayt_biy": 10.0 }
-    },
-    {
-        "uni": "Gebze Teknik Üniversitesi",
-        "dept": "Elektronik Mühendisliği (İngilizce)",
-        "score_type": "SAY",
-        "min_score": 468.0,
-        "rank": "~24.000",
-        "tyt_net": 88.0,
-        "ayt_net": 61.5,
-        "reqs": { "tyt_turkce": 30.0, "tyt_mat": 30.5, "tyt_fen": 14.5, "tyt_sos": 13.0, "ayt_mat": 31.0, "ayt_fiz": 10.5, "ayt_kim": 10.0, "ayt_biy": 10.0 }
-    },
-    {
-        "uni": "İstanbul Teknik Üniversitesi (İTÜ)",
-        "dept": "Bilgisayar Mühendisliği (İngilizce)",
-        "score_type": "SAY",
-        "min_score": 536.0,
-        "rank": "~1.200",
-        "tyt_net": 108.0,
-        "ayt_net": 76.5,
-        "reqs": { "tyt_turkce": 36.0, "tyt_mat": 38.0, "tyt_fen": 18.5, "tyt_sos": 15.5, "ayt_mat": 39.0, "ayt_fiz": 13.0, "ayt_kim": 12.5, "ayt_biy": 12.0 }
-    },
-    {
-        "uni": "Boğaziçi Üniversitesi",
-        "dept": "Yönetim Bilişim Sistemleri (YBS)",
-        "score_type": "EA",
-        "min_score": 512.0,
-        "rank": "~450",
-        "tyt_net": 102.0,
-        "ayt_net": 69.5,
-        "reqs": { "tyt_turkce": 36.0, "tyt_mat": 35.0, "tyt_fen": 15.0, "tyt_sos": 16.0, "ayt_mat": 36.0, "ayt_edebiyat": 22.0, "ayt_tarih": 6.0, "ayt_cog": 5.5 }
-    },
-    {
-        "uni": "Hacettepe Üniversitesi",
-        "dept": "Tıp Fakültesi (Türkçe)",
-        "score_type": "SAY",
-        "min_score": 533.0,
-        "rank": "~1.600",
-        "tyt_net": 107.0,
-        "ayt_net": 75.5,
-        "reqs": { "tyt_turkce": 36.5, "tyt_mat": 37.5, "tyt_fen": 18.0, "tyt_sos": 15.0, "ayt_mat": 38.0, "ayt_fiz": 12.5, "ayt_kim": 12.5, "ayt_biy": 12.5 }
-    }
-]
+# --- KOÇLUK & PIN ENDPOINTLERİ ---
+class AdminPinReq(BaseModel):
+    pin: str
 
-@app.get("/api/target/search")
-def search_target_uni(q: str = ""):
-    q_clean = q.lower().strip()
-    if not q_clean: return UNI_DATABASE
-    return [item for item in UNI_DATABASE if q_clean in item["uni"].lower() or q_clean in item["dept"].lower()]
+@app.post("/api/admin/verify-pin")
+def verify_admin_pin(req: AdminPinReq, db: Session = Depends(get_db)):
+    current_pin = get_admin_pin(db)
+    if req.pin.strip() == current_pin.strip():
+        return {"ok": True, "message": "Giriş başarılı"}
+    raise HTTPException(status_code=400, detail="Geçersiz PIN kodu!")
 
-class LibraryStatusReq(BaseModel):
-    user_id: int
-    is_studying: bool
-    subject: Optional[str] = "Matematik"
+class AdminChangePinReq(BaseModel):
+    old_pin: str
+    new_pin: str
 
-@app.post("/api/library/status")
-def update_library_status(req: LibraryStatusReq, db: Session = Depends(get_db)):
-    u = db.query(User).filter(User.id == int(req.user_id)).first()
-    if u:
-        u.is_studying_now = req.is_studying
-        u.studying_subject = req.subject or "Matematik"
-        u.last_active = datetime.utcnow()
-        db.commit()
-    return {"ok": True}
+@app.post("/api/admin/change-pin")
+def change_admin_pin(req: AdminChangePinReq, db: Session = Depends(get_db)):
+    current_pin = get_admin_pin(db)
+    if req.old_pin.strip() != current_pin.strip():
+        raise HTTPException(status_code=400, detail="Mevcut PIN hatalı!")
+    if len(req.new_pin.strip()) < 4:
+        raise HTTPException(status_code=400, detail="Yeni PIN en az 4 haneli olmalıdır!")
+    
+    s = db.query(SystemSetting).filter(SystemSetting.key == "admin_pin").first()
+    if s:
+        s.value = req.new_pin.strip()
+    else:
+        s = SystemSetting(key="admin_pin", value=req.new_pin.strip())
+        db.add(s)
+    db.commit()
+    return {"ok": True, "message": "PIN kodu başarıyla güncellendi."}
 
-@app.get("/api/library/active-students")
-def get_active_students(db: Session = Depends(get_db)):
-    now = datetime.utcnow()
-    timeout = now - timedelta(minutes=20)
-    active = db.query(User).filter(User.is_studying_now == True, User.last_active >= timeout).all()
-    res = []
-    for u in active:
-        res.append({
+@app.get("/api/admin/overview")
+def get_admin_overview(db: Session = Depends(get_db)):
+    users = db.query(User).all()
+    user_list = []
+    for u in users:
+        solved_today = db.query(DailyQuestionGoal).filter(
+            DailyQuestionGoal.user_id == u.id,
+            DailyQuestionGoal.date_str == datetime.utcnow().strftime("%Y-%m-%d")
+        ).first()
+        
+        user_list.append({
             "id": u.id,
             "username": u.username,
-            "title": u.selected_title or "Öğrenci",
-            "subject": u.studying_subject or "Genel Odak",
-            "xp": u.xp
+            "email": u.email,
+            "xp": u.xp or 0,
+            "target_uni": u.target_uni,
+            "target_dept": u.target_dept,
+            "selected_title": u.selected_title,
+            "solved_today": solved_today.solved if solved_today else 0,
+            "target_today": solved_today.target if solved_today else 100,
+            "is_studying": u.is_studying_now
         })
-    return res
+    return {"users": user_list, "total_users": len(user_list)}
 
+# --- AUTH & USER ---
 class RegisterReq(BaseModel):
     username: str
     email: str
@@ -287,7 +244,6 @@ class LoginReq(BaseModel):
 def register(req: RegisterReq, db: Session = Depends(get_db)):
     u_clean = req.username.strip()
     e_clean = req.email.strip().lower()
-    
     if db.query(User).filter(User.username == u_clean).first():
         raise HTTPException(status_code=400, detail="Bu kullanıcı adı kullanımda.")
     if db.query(User).filter(User.email == e_clean).first():
@@ -343,23 +299,20 @@ class BuyReq(BaseModel):
 @app.post("/api/market/buy")
 def buy_market_item(req: BuyReq, db: Session = Depends(get_db)):
     user = db.query(User).filter(User.id == int(req.user_id)).first()
-    if not user:
-        raise HTTPException(status_code=404, detail="Kullanıcı bulunamadı!")
+    if not user: raise HTTPException(status_code=404, detail="Kullanıcı bulunamadı!")
     
     current_themes = set([t.strip() for t in (user.unlocked_themes or "slate").split(",") if t.strip()])
     current_titles = set([t.strip() for t in (user.unlocked_titles or "🌱 Çırak Öğrenci").split(",") if t.strip()])
 
     if req.item_type == "theme":
         if req.item_id not in current_themes:
-            if (user.xp or 0) < req.cost:
-                raise HTTPException(status_code=400, detail="Yetersiz XP Puanı!")
+            if (user.xp or 0) < req.cost: raise HTTPException(status_code=400, detail="Yetersiz XP Puanı!")
             user.xp = (user.xp or 0) - req.cost
             current_themes.add(req.item_id)
             user.unlocked_themes = ",".join(current_themes)
     elif req.item_type == "title":
         if req.item_id not in current_titles:
-            if (user.xp or 0) < req.cost:
-                raise HTTPException(status_code=400, detail="Yetersiz XP Puanı!")
+            if (user.xp or 0) < req.cost: raise HTTPException(status_code=400, detail="Yetersiz XP Puanı!")
             user.xp = (user.xp or 0) - req.cost
             current_titles.add(req.item_id)
             user.unlocked_titles = ",".join(current_titles)
@@ -367,84 +320,39 @@ def buy_market_item(req: BuyReq, db: Session = Depends(get_db)):
 
     db.commit()
     db.refresh(user)
-    return {
-        "xp": user.xp, 
-        "unlocked_themes": user.unlocked_themes, 
-        "unlocked_titles": user.unlocked_titles, 
-        "selected_title": user.selected_title, 
-        "message": "İşlem başarıyla tamamlandı!"
-    }
+    return {"xp": user.xp, "unlocked_themes": user.unlocked_themes, "unlocked_titles": user.unlocked_titles, "selected_title": user.selected_title}
 
-# --- PDF VE YAZDIRMA ENDPOINTLERİ ---
+# --- PDF & EXPORT ---
 @app.get("/api/schedule/export-pdf")
 def export_schedule_pdf(user_id: Optional[int] = None, db: Session = Depends(get_db)):
     q = db.query(WeeklySchedule)
-    if user_id:
-        q = q.filter((WeeklySchedule.user_id == int(user_id)) | (WeeklySchedule.user_id == None))
+    if user_id: q = q.filter((WeeklySchedule.user_id == int(user_id)) | (WeeklySchedule.user_id == None))
     tasks = q.all()
-    
     days_order = ["Pazartesi", "Salı", "Çarşamba", "Perşembe", "Cuma", "Cumartesi", "Pazar"]
     days_tasks = {d: [] for d in days_order}
     for t in tasks:
-        if t.day in days_tasks:
-            days_tasks[t.day].append(t)
+        if t.day in days_tasks: days_tasks[t.day].append(t)
             
     cards_html = ""
     for day in days_order:
         t_list = "".join([f"<li style=\"margin-bottom:6px;\"><b>{t.subject}:</b> {t.task}</li>" for t in days_tasks[day]])
-        if not t_list:
-            t_list = "<li style=\"color:#94a3b8; list-style:none;\">Plan yok</li>"
-        cards_html += f"""
-        <div style="border:1px solid #e2e8f0; border-radius:8px; padding:12px; background:#f8fafc;">
-            <h3 style="margin-top:0; color:#4f46e5; border-bottom:1px solid #cbd5e1; padding-bottom:4px; font-size:14px;">{day}</h3>
-            <ul style="padding-left:16px; margin:0; font-size:12px; color:#1e293b;">{t_list}</ul>
-        </div>
-        """
+        if not t_list: t_list = "<li style=\"color:#94a3b8; list-style:none;\">Plan yok</li>"
+        cards_html += f"<div style=\"border:1px solid #e2e8f0; border-radius:8px; padding:12px; background:#f8fafc;\"><h3 style=\"margin-top:0; color:#4f46e5;\">{day}</h3><ul style=\"padding-left:16px;\">{t_list}</ul></div>"
 
-    html = f"""<!DOCTYPE html><html><head><meta charset="utf-8"><title>Haftalık Plan</title>
-    <style>body {{ font-family: sans-serif; padding: 24px; }} .grid {{ display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px; margin-top:20px; }}</style></head>
-    <body><h2>🎯 YKStudy Haftalık Çalışma Programı</h2><div class="grid">{cards_html}</div>
-    <script>window.onload = function() {{ window.print(); }}</script></body></html>"""
+    html = f"<!DOCTYPE html><html><head><meta charset=\"utf-8\"><title>Plan</title><style>body{{font-family:sans-serif;padding:24px;}} .grid{{display:grid;grid-template-columns:repeat(3,1fr);gap:14px;}}</style></head><body><h2>🎯 YKStudy Haftalık Çalışma Programı</h2><div class=\"grid\">{cards_html}</div><script>window.onload=function(){{window.print();}}</script></body></html>"
     return HTMLResponse(content=html)
 
 @app.get("/api/mistakes/export-book")
 def export_mistakes_book(user_id: Optional[int] = None, db: Session = Depends(get_db)):
     q = db.query(Mistake)
-    if user_id:
-        q = q.filter((Mistake.user_id == int(user_id)) | (Mistake.user_id == None))
+    if user_id: q = q.filter((Mistake.user_id == int(user_id)) | (Mistake.user_id == None))
     mistakes_list = q.order_by(Mistake.created_at.desc()).all()
-
-    items_html = ""
-    for idx, m in enumerate(mistakes_list, 1):
-        items_html += f"""
-        <div style="border:1px solid #cbd5e1; border-radius:8px; padding:14px; margin-bottom:14px; page-break-inside:avoid; background:#fff;">
-            <div style="font-weight:bold; color:#4f46e5; margin-bottom:6px;">Soru #{idx} ({m.tag}) - Zorluk: {m.difficulty}/5</div>
-            <div style="background:#f8fafc; padding:8px; border-radius:6px; font-size:12px;">{m.note or "Not yok"}</div>
-        </div>
-        """
+    items_html = "".join([f"<div style=\"border:1px solid #cbd5e1; border-radius:8px; padding:14px; margin-bottom:14px; background:#fff;\"><b>Soru #{idx} ({m.tag})</b> - Zorluk: {m.difficulty}/5<div style=\"margin-top:6px; background:#f8fafc; padding:8px;\">{m.note or 'Not yok'}</div></div>" for idx, m in enumerate(mistakes_list, 1)])
     if not items_html: items_html = "<p>Yanlış defterinde soru bulunamadı.</p>"
-
-    html = f"""<!DOCTYPE html><html><head><meta charset="utf-8"><title>Yanlış Defteri</title>
-    <style>body {{ font-family: sans-serif; padding: 24px; }}</style></head>
-    <body><h2>📘 YKStudy Yanlış Defteri Kitapçığı</h2><div>{items_html}</div>
-    <script>window.onload = function() {{ window.print(); }}</script></body></html>"""
+    html = f"<!DOCTYPE html><html><head><meta charset=\"utf-8\"><title>Yanlış Defteri</title><style>body{{font-family:sans-serif;padding:24px;}}</style></head><body><h2>📘 YKStudy Yanlış Defteri</h2><div>{items_html}</div><script>window.onload=function(){{window.print();}}</script></body></html>"
     return HTMLResponse(content=html)
 
-@app.get("/api/trials/{trial_id}/report-card")
-def export_trial_report_card(trial_id: int, db: Session = Depends(get_db)):
-    t = db.query(ExamTrial).filter(ExamTrial.id == int(trial_id)).first()
-    if not t: raise HTTPException(status_code=404, detail="Deneme bulunamadı.")
-    u = db.query(User).filter(User.id == t.user_id).first()
-    username = u.username if u else "Öğrenci"
-
-    html = f"""<!DOCTYPE html><html><head><meta charset="utf-8"><title>Deneme Karnesi</title>
-    <style>body {{ font-family: sans-serif; padding: 32px; }} .card {{ max-width: 600px; margin: 0 auto; border: 1px solid #e2e8f0; padding: 24px; border-radius: 12px; }}</style></head>
-    <body><div class="card"><h2>🎯 YKStudy Deneme Karnesi</h2><p>Öğrenci: <b>{username}</b> | Deneme: <b>{t.title}</b></p>
-    <p>Doğru: <b style="color:green;">{t.correct_count}</b> | Yanlış: <b style="color:red;">{t.wrong_count}</b> | Net: <b style="color:blue;">{t.net_score}</b></p>
-    <script>window.onload = function() {{ window.print(); }}</script></div></body></html>"""
-    return HTMLResponse(content=html)
-
-# --- VERİ VE YÖNETİM ENDPOINTLERİ ---
+# --- DİĞER VERİ ROTALARI ---
 class TopicCreate(BaseModel):
     subject: str
     title: str
@@ -477,9 +385,7 @@ def update_matrix(topic_id: int, field: str, user_id: Optional[int] = None, db: 
     t.mastery_score = float((30 if t.theory_done else 0) + (35 if t.source1_done else 0) + (35 if t.source2_done else 0))
     db.commit()
     db.refresh(t)
-    new_xp = 0
-    if t.mastery_score >= 100:
-        new_xp = add_user_xp(user_id or t.user_id, 50, db)
+    new_xp = add_user_xp(user_id or t.user_id, 50, db) if t.mastery_score >= 100 else 0
     return {"topic": t, "new_xp": new_xp}
 
 @app.delete("/api/topics/{topic_id}")
@@ -496,13 +402,9 @@ def get_mistakes(user_id: Optional[int] = None, db: Session = Depends(get_db)):
 
 @app.post("/api/mistakes")
 async def add_mistake(
-    topic_id: int = Form(1),
-    note: str = Form(""),
-    tag: str = Form("Genel"),
-    difficulty: int = Form(3),
-    user_id: Optional[int] = Form(None),
-    file: Optional[UploadFile] = File(None),
-    db: Session = Depends(get_db)
+    topic_id: int = Form(1), note: str = Form(""), tag: str = Form("Genel"),
+    difficulty: int = Form(3), user_id: Optional[int] = Form(None),
+    file: Optional[UploadFile] = File(None), db: Session = Depends(get_db)
 ):
     image_rel = None
     if file and file.filename:
@@ -541,8 +443,7 @@ def get_trials(user_id: Optional[int] = None, db: Session = Depends(get_db)):
 @app.post("/api/trials")
 def add_trial(req: TrialCreate, user_id: Optional[int] = None, db: Session = Depends(get_db)):
     uid = int(req.user_id or user_id) if (req.user_id or user_id) else None
-    c = float(req.correct_count)
-    w = float(req.wrong_count)
+    c, w = float(req.correct_count), float(req.wrong_count)
     net = round(c - (w * 0.25), 2)
     t = ExamTrial(title=req.title.strip(), exam_type=req.exam_type, correct_count=c, wrong_count=w, net_score=net, user_id=uid)
     db.add(t)
@@ -586,8 +487,7 @@ def toggle_schedule(task_id: int, user_id: Optional[int] = None, db: Session = D
         s.is_completed = not s.is_completed
         db.commit()
         db.refresh(s)
-        if s.is_completed:
-            new_xp = add_user_xp(user_id or s.user_id, 25, db)
+        if s.is_completed: new_xp = add_user_xp(user_id or s.user_id, 25, db)
     return {"task": s, "new_xp": new_xp}
 
 @app.delete("/api/schedule/{task_id}")
@@ -614,11 +514,7 @@ def get_books(user_id: Optional[int] = None, db: Session = Depends(get_db)):
 @app.post("/api/books")
 def add_book(req: BookCreate, user_id: Optional[int] = None, db: Session = Depends(get_db)):
     uid = int(req.user_id or user_id) if (req.user_id or user_id) else None
-    b = BookTracker(
-        title=req.title.strip(), subject=req.subject, book_type=req.book_type or "Soru Bankası",
-        total_tests=int(req.total_tests), daily_pace=float(req.daily_pace or 1.5),
-        cover_color=req.cover_color or "from-blue-600 to-indigo-800", user_id=uid
-    )
+    b = BookTracker(title=req.title.strip(), subject=req.subject, book_type=req.book_type or "Soru Bankası", total_tests=int(req.total_tests), daily_pace=float(req.daily_pace or 1.5), cover_color=req.cover_color or "from-blue-600 to-indigo-800", user_id=uid)
     db.add(b)
     db.commit()
     db.refresh(b)
@@ -665,8 +561,7 @@ def add_solved(count: int, user_id: Optional[int] = None, db: Session = Depends(
         g.solved += int(count)
         db.commit()
         db.refresh(g)
-        if user_id:
-            new_xp = add_user_xp(user_id, int(count) * 2, db)
+        if user_id: new_xp = add_user_xp(user_id, int(count) * 2, db)
     return {"goal": g, "new_xp": new_xp}
 
 @app.get("/api/streak/history")
@@ -684,10 +579,7 @@ def get_streak_history(user_id: Optional[int] = None, db: Session = Depends(get_
         solved = g.solved if g else 0
         target = g.target if g else 100
         completed = solved >= target and solved > 0
-        history.append({
-            "date": d_str, "day_num": d.strftime("%d/%m"),
-            "solved": solved, "target": target, "completed": completed
-        })
+        history.append({"date": d_str, "day_num": d.strftime("%d/%m"), "solved": solved, "target": target, "completed": completed})
     
     current_streak = 0
     today_str = today.strftime("%Y-%m-%d")
@@ -751,96 +643,3 @@ def save_journal(req: JournalCreate, user_id: Optional[int] = None, db: Session 
     db.refresh(j)
     new_xp = add_user_xp(user_id, 30, db)
     return {"journal": j, "new_xp": new_xp}
-
-
-# --- GÜNLÜK DİNAMİK FORMÜL VERİTABANI ---
-DAILY_FORMULAS = [
-    {"subject": "Matematik", "title": "İkinci Dereceden Denklem Kökleri", "formula": "x₁,₂ = (-b ± √(b² - 4ac)) / (2a)", "tip": "Δ < 0 ise reel kök yoktur, karmaşık kök vardır."},
-    {"subject": "Fizik", "title": "Düzgün Hızlanan Doğrusal Hareket", "formula": "x = v₀·t + ½·a·t²  |  v² = v₀² + 2·a·x", "tip": "İvme sabit değilse bu formüller doğrudan kullanılamaz."},
-    {"subject": "Kimya", "title": "İdeal Gaz Yasası", "formula": "P · V = n · R · T", "tip": "R = 0.082 L·atm/(mol·K) veya 22.4/273 alınır, sıcaklık Kelvin cinsindendir."},
-    {"subject": "Matematik", "title": "Aritmetik Dizi Genel Terimi", "formula": "aₙ = a₁ + (n - 1) · d  |  Sₙ = (n/2) · (a₁ + aₙ)", "tip": "Ardışık terimler farkı sabittir (ortak fark = d)."},
-    {"subject": "Fizik", "title": "İş - Kinetik Enerji Teoremi", "formula": "W_net = ΔE_k = ½·m·v_son² - ½·m·v_ilk²", "tip": "Sürtünme varsa ısıya dönüşen enerji W_net içine negatif katılır."},
-    {"subject": "Kimya", "title": "Molarite ve Derişim", "formula": "M = n / V (Litre)  |  M₁·V₁ = M₂·V₂", "tip": "Seyreltme veya deriştirme işlemlerinde çözünen mol sayısı (n) değişmez."},
-    {"subject": "Matematik", "title": "Trigonometri: Yarım Açı Formülleri", "formula": "sin(2x) = 2·sin(x)·cos(x)  |  cos(2x) = cos²(x) - sin²(x)", "tip": "cos(2x) = 2cos²(x)-1 = 1-2sin²(x) dönüşümleri integral/türev sadeleştirmede kritiktir."},
-    {"subject": "Fizik", "title": "Elektriksel Kuvvet (Coulomb)", "formula": "F = k · |q₁ · q₂| / d²", "tip": "Kuvvet vektöreldir, yük işaretleri yön tayininde kullanılır."},
-    {"subject": "Kimya", "title": "Tepkime Hızı (Kinetik)", "formula": "Hız (r) = k · [A]^a · [B]^b", "tip": "Katı ve saf sıvılar hız bağıntısına yazılmaz, yalnızca gazlar ve sulu çözeltiler yazılır."},
-    {"subject": "Matematik", "title": "Logaritma Taban Değiştirme", "formula": "log_a(b) = log_c(b) / log_c(a) = ln(b) / ln(a)", "tip": "log_a(b) · log_b(c) = log_a(c) çarpım kuralını unutma."},
-    {"subject": "Fizik", "title": "Basit Harmonik Hareket Periyotları", "formula": "Yay: T = 2π√(m/k)  |  Sarkaç: T = 2π√(L/g)", "tip": "Yay sarkaçta genlik (A) periyodu etkilemez."},
-    {"subject": "Kimya", "title": "pH ve pOH Bağıntısı (25°C)", "formula": "pH = -log[H⁺]  |  pOH = -log[OH⁻]  |  pH + pOH = 14", "tip": "Sıcaklık 25°C'den farklıysa Kw değeri ve dolayısıyla toplam değişir."}
-]
-
-@app.get("/api/formulas/today")
-def get_today_formulas():
-    # Yılın gününe göre her gün otomatik olarak 3 farklı formül seçer
-    day_of_year = datetime.utcnow().timetuple().tm_yday
-    total = len(DAILY_FORMULAS)
-    
-    idx1 = (day_of_year * 3) % total
-    idx2 = (day_of_year * 3 + 1) % total
-    idx3 = (day_of_year * 3 + 2) % total
-    
-    return {
-        "date": datetime.utcnow().strftime("%d.%m.%Y"),
-        "formulas": [
-            DAILY_FORMULAS[idx1],
-            DAILY_FORMULAS[idx2],
-            DAILY_FORMULAS[idx3]
-        ]
-    }
-
-
-# --- KOÇLUK & YÖNETİM MERKEZİ ENDPOINTLERİ ---
-class AdminPinReq(BaseModel):
-    pin: str
-
-@app.post("/api/admin/verify-pin")
-def verify_admin_pin(req: AdminPinReq, db: Session = Depends(get_db)):
-    current_pin = get_admin_pin(db)
-    if req.pin.strip() == current_pin.strip():
-        return {"ok": True, "message": "Giriş başarılı"}
-    raise HTTPException(status_code=400, detail="Geçersiz PIN kodu!")
-
-class AdminChangePinReq(BaseModel):
-    old_pin: str
-    new_pin: str
-
-@app.post("/api/admin/change-pin")
-def change_admin_pin(req: AdminChangePinReq, db: Session = Depends(get_db)):
-    current_pin = get_admin_pin(db)
-    if req.old_pin.strip() != current_pin.strip():
-        raise HTTPException(status_code=400, detail="Mevcut PIN hatalı!")
-    if len(req.new_pin.strip()) < 4:
-        raise HTTPException(status_code=400, detail="Yeni PIN en az 4 haneli olmalıdır!")
-    
-    s = db.query(SystemSetting).filter(SystemSetting.key == "admin_pin").first()
-    if s:
-        s.value = req.new_pin.strip()
-    else:
-        s = SystemSetting(key="admin_pin", value=req.new_pin.strip())
-        db.add(s)
-    db.commit()
-    return {"ok": True, "message": "PIN kodu başarıyla güncellendi."}
-
-@app.get("/api/admin/overview")
-def get_admin_overview(db: Session = Depends(get_db)):
-    users = db.query(User).all()
-    user_list = []
-    for u in users:
-        solved_today = db.query(DailyQuestionGoal).filter(
-            DailyQuestionGoal.user_id == u.id,
-            DailyQuestionGoal.date_str == datetime.utcnow().strftime("%Y-%m-%d")
-        ).first()
-        
-        user_list.append({
-            "id": u.id,
-            "username": u.username,
-            "email": u.email,
-            "xp": u.xp or 0,
-            "target_uni": u.target_uni,
-            "target_dept": u.target_dept,
-            "selected_title": u.selected_title,
-            "solved_today": solved_today.solved if solved_today else 0,
-            "target_today": solved_today.target if solved_today else 100,
-            "is_studying": u.is_studying_now
-        })
-    return {"users": user_list, "total_users": len(user_list)}
